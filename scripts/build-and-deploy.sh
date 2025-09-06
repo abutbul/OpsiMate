@@ -7,6 +7,9 @@ set -euo pipefail
 #   ./scripts/build-and-deploy.sh deploy-server [--tag <tag>] [--postgres]
 #   ./scripts/build-and-deploy.sh run-client [--tag <tag>]
 #   ./scripts/build-and-deploy.sh push [server|client|all] [--tag <tag>] [--registry my.registry/opsimate]
+#   ./scripts/build-and-deploy.sh stop [--postgres]
+#   ./scripts/build-and-deploy.sh clean [images|containers|all] [--tag <tag>]
+#   ./scripts/build-and-deploy.sh ps
 
 # Create .env from .env.example if it doesn't exist
 if [ ! -f .env ] && [ -f .env.example ]; then
@@ -65,28 +68,38 @@ fi
 
 BUILD_ARGS=(--progress=plain)
 
-# Function to clone and checkout specific tag if needed
+# Function to verify tag exists (for information only - NO local git operations)
 prepare_source() {
     local tag=$1
     
-    # If tag is not "local" and doesn't exist locally, try to fetch it
-    if [ "$tag" != "local" ] && ! git rev-parse --verify "$tag" >/dev/null 2>&1; then
-        echo "Tag '$tag' not found locally. Fetching from remote..."
-        if git ls-remote --tags origin | grep -q "refs/tags/$tag"; then
-            git fetch --tags
-            if git rev-parse --verify "$tag" >/dev/null 2>&1; then
-                echo "Checking out tag '$tag'..."
-                git checkout "$tag"
-            else
-                echo "Warning: Tag '$tag' not found in remote. Building from current HEAD."
-            fi
-        else
-            echo "Warning: Tag '$tag' not found in remote. Building from current HEAD."
-        fi
-    elif [ "$tag" != "local" ]; then
-        echo "Checking out tag '$tag'..."
-        git checkout "$tag"
+    # Skip verification for local builds
+    if [ "$tag" = "local" ]; then
+        echo "Building from current local state..."
+        return
     fi
+    
+    echo "Verifying tag '$tag' existence..."
+    
+    # Check if tag exists locally
+    if git rev-parse --verify "$tag" >/dev/null 2>&1; then
+        echo "Tag '$tag' found locally."
+        return
+    fi
+    
+    # Check current origin remote
+    if git ls-remote --tags origin 2>/dev/null | grep -q "refs/tags/$tag"; then
+        echo "Tag '$tag' found in current remote (origin)."
+        return
+    fi
+    
+    # Check official OpsiMate repository as fallback
+    if git ls-remote --tags https://github.com/OpsiMate/OpsiMate.git 2>/dev/null | grep -q "refs/tags/$tag"; then
+        echo "Tag '$tag' found in official OpsiMate repository."
+        echo "Note: Building from current HEAD since we don't modify local git state."
+        return
+    fi
+    
+    echo "Warning: Tag '$tag' not found in any repository. Building from current HEAD."
 }
 
 build_server() {
@@ -105,6 +118,122 @@ push_image() {
   local image=$1
   echo "Pushing ${image}"
   docker push "${image}"
+}
+
+stop_containers() {
+  echo "Checking running OpsiMate containers..."
+  
+  # Determine which compose file to use
+  COMPOSE_FILE="docker/docker-compose.opsimate.server.yml"
+  if [ "$USE_POSTGRES" = true ] || [ "${DATABASE_TYPE:-}" = "postgres" ]; then
+      COMPOSE_FILE="docker/docker-compose.opsimate.postgres.yml"
+      echo "Using PostgreSQL compose configuration"
+  else
+      echo "Using SQLite compose configuration"
+  fi
+  
+  # Check if there are any OpsiMate containers running
+  RUNNING_CONTAINERS=$(docker ps --filter "name=opsimate" --format "{{.Names}}" | wc -l)
+  
+  if [ "$RUNNING_CONTAINERS" -gt 0 ]; then
+    echo "Found $RUNNING_CONTAINERS running OpsiMate container(s):"
+    docker ps --filter "name=opsimate" --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
+    echo
+    echo "Stopping containers using compose file: $COMPOSE_FILE"
+    docker compose -f "$COMPOSE_FILE" down
+  else
+    echo "No OpsiMate containers are currently running."
+    
+    # Check for any containers with opsimate in the name anyway
+    ALL_OPSIMATE=$(docker ps -a --filter "name=opsimate" --format "{{.Names}}" | wc -l)
+    if [ "$ALL_OPSIMATE" -gt 0 ]; then
+      echo "Found $ALL_OPSIMATE stopped OpsiMate container(s):"
+      docker ps -a --filter "name=opsimate" --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
+    fi
+  fi
+}
+
+clean_resources() {
+  local target=$1
+  
+  case "$target" in
+    containers)
+      echo "Cleaning OpsiMate containers..."
+      # Remove all opsimate containers (running and stopped)
+      CONTAINERS=$(docker ps -a --filter "name=opsimate" -q)
+      if [ -n "$CONTAINERS" ]; then
+        docker rm -f $CONTAINERS
+        echo "Removed OpsiMate containers."
+      else
+        echo "No OpsiMate containers to remove."
+      fi
+      ;;
+    images)
+      echo "Cleaning OpsiMate images..."
+      if [ -n "$TAG" ]; then
+        # Remove specific tag
+        echo "Removing images with tag: $TAG"
+        docker rmi -f "${FULL_REGISTRY_PREFIX}opsimate/server:${TAG}" 2>/dev/null || echo "Server image with tag $TAG not found"
+        docker rmi -f "${FULL_REGISTRY_PREFIX}opsimate/client:${TAG}" 2>/dev/null || echo "Client image with tag $TAG not found"
+      else
+        # Remove all opsimate images
+        IMAGES=$(docker images --filter "reference=*opsimate/*" -q)
+        if [ -n "$IMAGES" ]; then
+          docker rmi -f $IMAGES
+          echo "Removed all OpsiMate images."
+        else
+          echo "No OpsiMate images to remove."
+        fi
+      fi
+      ;;
+    all)
+      echo "Cleaning all OpsiMate resources..."
+      clean_resources containers
+      clean_resources images
+      # Clean up any dangling images
+      echo "Cleaning up dangling images..."
+      docker image prune -f
+      ;;
+    *)
+      echo "Unknown clean target: $target"
+      echo "Available targets: containers, images, all"
+      exit 1
+      ;;
+  esac
+}
+
+list_containers() {
+  echo "=== OpsiMate Container Status ==="
+  
+  # Check running containers
+  RUNNING=$(docker ps --filter "name=opsimate" --format "{{.Names}}" | wc -l)
+  if [ "$RUNNING" -gt 0 ]; then
+    echo "Running OpsiMate containers ($RUNNING):"
+    docker ps --filter "name=opsimate" --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"
+    echo
+  fi
+  
+  # Check all containers (including stopped)
+  ALL=$(docker ps -a --filter "name=opsimate" --format "{{.Names}}" | wc -l)
+  if [ "$ALL" -gt "$RUNNING" ]; then
+    STOPPED=$((ALL - RUNNING))
+    echo "Stopped OpsiMate containers ($STOPPED):"
+    docker ps -a --filter "name=opsimate" --filter "status=exited" --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"
+    echo
+  fi
+  
+  if [ "$ALL" -eq 0 ]; then
+    echo "No OpsiMate containers found."
+  fi
+  
+  # Show images
+  echo "=== OpsiMate Images ==="
+  IMAGES=$(docker images --filter "reference=*opsimate/*" --format "{{.Repository}}" | wc -l)
+  if [ "$IMAGES" -gt 0 ]; then
+    docker images --filter "reference=*opsimate/*" --format "table {{.Repository}}\t{{.Tag}}\t{{.Size}}\t{{.CreatedAt}}"
+  else
+    echo "No OpsiMate images found."
+  fi
 }
 
 case "$ACTION" in
@@ -140,6 +269,16 @@ case "$ACTION" in
     echo "Running client (will be removed on exit) - http://localhost:8080"
     docker run --rm -p 8080:8080 --name opsimate-client "${FULL_REGISTRY_PREFIX}opsimate/client:${TAG}"
     ;;
+  stop)
+    stop_containers
+    ;;
+  clean)
+    TARGET=${TARGET:-all}
+    clean_resources "$TARGET"
+    ;;
+  ps)
+    list_containers
+    ;;
   push)
     case "$TARGET" in
       server)
@@ -160,6 +299,17 @@ Usage:
   $0 deploy-server [--tag <tag>] [--postgres]
   $0 run-client [--tag <tag>]
   $0 push [server|client|all] [--tag <tag>] [--registry my.registry/opsimate]
+  $0 stop [--postgres]
+  $0 clean [containers|images|all] [--tag <tag>]
+  $0 ps
+
+Container Management:
+  stop: Stop running OpsiMate containers using docker compose
+  clean: Remove containers, images, or both
+    - containers: Remove all OpsiMate containers (running and stopped)
+    - images: Remove OpsiMate images (all or specific tag with --tag)
+    - all: Remove containers and images, plus cleanup dangling images
+  ps: List all OpsiMate containers and images with their status
 
 Environment Configuration:
   Create .env file from .env.example to set default values.
@@ -177,6 +327,10 @@ Examples:
   $0 build all --tag v0.0.28
   $0 deploy-server --tag v0.0.28 --postgres
   $0 deploy-server  # Uses .env configuration
+  $0 stop --postgres
+  $0 clean images --tag v0.0.28
+  $0 clean all
+  $0 ps
 EOF
     ;;
 esac

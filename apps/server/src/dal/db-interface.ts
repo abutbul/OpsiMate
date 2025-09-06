@@ -144,8 +144,9 @@ export function initializeDb(): DatabaseInterface {
 
   if (dbType === 'postgres' && config.database.postgres) {
     return new PostgreSQLWrapper(config.database.postgres);
-  } else if (dbType === 'sqlite' && config.database.path) {
-    return new SQLiteWrapper(config.database.path);
+  } else if (dbType === 'sqlite') {
+    const dbPath = config.database.path || '../../data/database/opsimate.db';
+    return new SQLiteWrapper(dbPath);
   } else {
     throw new Error(`Invalid database configuration: type=${dbType}`);
   }

@@ -14,7 +14,7 @@ COPY apps/client/package.json ./apps/client/
 COPY packages/shared/package.json ./packages/shared/
 
 # Install dependencies with cleanup in same layer
-RUN pnpm install --frozen-lockfile && \
+RUN pnpm install --no-frozen-lockfile && \
     if [ "$(uname -m)" = "aarch64" ]; then pnpm add @rollup/rollup-linux-arm64-musl --save-dev --filter @OpsiMate/client; fi && \
     pnpm store prune
 

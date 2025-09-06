@@ -8,9 +8,12 @@ const logger = new Logger('dal/db');
 
 export function initializeDb(): Database.Database {
   const databaseConfig = getDatabaseConfig();
-  const dbPath = path.isAbsolute(databaseConfig.path) 
-    ? databaseConfig.path 
-    : path.resolve(__dirname, databaseConfig.path);
+  // Ensure we always work with a string path to satisfy TypeScript
+  // and provide a sensible default when not set explicitly.
+  const configuredPath = databaseConfig.path ?? '../../data/database/opsimate.db';
+  const dbPath = path.isAbsolute(configuredPath)
+    ? configuredPath
+    : path.resolve(__dirname, configuredPath);
   logger.info(`SQLite database is connecting to ${dbPath}`);
 
   try {

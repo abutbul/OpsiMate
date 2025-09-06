@@ -110,7 +110,7 @@ docker run -d \
 
 #### Advanced Deployment with Build Script
 
-OpsiMate includes a wrapper script for building and deploying specific versions:
+OpsiMate includes a comprehensive wrapper script for building, deploying, and managing Docker containers:
 
 ```bash
 # Copy environment template
@@ -126,6 +126,11 @@ cp .env.example .env
 # Build specific version from git tag
 ./scripts/build-and-deploy.sh build all --tag v0.0.28
 ./scripts/build-and-deploy.sh deploy-server --tag v0.0.28
+
+# Container Management
+./scripts/build-and-deploy.sh ps          # List all containers and images
+./scripts/build-and-deploy.sh stop        # Stop running containers
+./scripts/build-and-deploy.sh clean all   # Clean up containers and images
 ```
 
 #### PostgreSQL Deployment
@@ -249,6 +254,61 @@ The `build-and-deploy.sh` script supports various deployment scenarios:
 
 # Push to registry
 ./scripts/build-and-deploy.sh push all --registry my.registry/opsimate
+```
+
+### Container Management
+
+The build script includes comprehensive Docker container management capabilities:
+
+#### View Container Status
+```bash
+# List all OpsiMate containers and images with detailed status
+./scripts/build-and-deploy.sh ps
+```
+
+This shows:
+- Running containers with ports and status
+- Stopped containers 
+- Available images with tags and sizes
+
+#### Stop Containers
+```bash
+# Stop running OpsiMate containers
+./scripts/build-and-deploy.sh stop
+
+# Stop PostgreSQL deployment specifically
+./scripts/build-and-deploy.sh stop --postgres
+```
+
+#### Clean Up Resources
+```bash
+# Remove all containers (running and stopped)
+./scripts/build-and-deploy.sh clean containers
+
+# Remove all images
+./scripts/build-and-deploy.sh clean images
+
+# Remove specific tagged images
+./scripts/build-and-deploy.sh clean images --tag v0.0.28
+
+# Complete cleanup (containers + images + dangling images)
+./scripts/build-and-deploy.sh clean all
+```
+
+#### Management Examples
+```bash
+# Check what's running before deployment
+./scripts/build-and-deploy.sh ps
+
+# Deploy new version
+./scripts/build-and-deploy.sh deploy-server --tag v0.0.29
+
+# Stop old containers and clean up
+./scripts/build-and-deploy.sh stop
+./scripts/build-and-deploy.sh clean containers
+
+# Clean up old images to save space
+./scripts/build-and-deploy.sh clean images --tag v0.0.28
 ```
 
 ## Development
