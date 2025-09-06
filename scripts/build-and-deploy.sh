@@ -106,14 +106,15 @@ build_server() {
   echo "Building server image: ${FULL_REGISTRY_PREFIX}opsimate/server:${TAG}"
   prepare_source "$TAG"
   
-  # Determine build args based on tag
+  # In CI environments or when source is already available, always use local mode
+  # Only use git cloning for explicit version tags (like v1.0.0)
   local build_args=("${BUILD_ARGS[@]}")
-  if [ "$TAG" != "local" ]; then
+  if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]] && [ "$TAG" != "local" ]; then
     build_args+=(--build-arg "SOURCE_TAG=$TAG")
     echo "Building from git tag: $TAG"
   else
     build_args+=(--build-arg "SOURCE_TAG=local")
-    echo "Building from local context"
+    echo "Building from local context (tag: $TAG)"
   fi
   
   docker build "${build_args[@]}" --target server-runtime -f docker/Dockerfile -t "${FULL_REGISTRY_PREFIX}opsimate/server:${TAG}" .
@@ -123,17 +124,18 @@ build_client() {
   echo "Building client image: ${FULL_REGISTRY_PREFIX}opsimate/client:${TAG}"
   prepare_source "$TAG"
   
-  # Determine build args based on tag
+  # In CI environments or when source is already available, always use local mode
+  # Only use git cloning for explicit version tags (like v1.0.0)
   local build_args=("${BUILD_ARGS[@]}")
-  if [ "$TAG" != "local" ]; then
+  if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]] && [ "$TAG" != "local" ]; then
     build_args+=(--build-arg "SOURCE_TAG=$TAG")
     echo "Building from git tag: $TAG"
   else
     build_args+=(--build-arg "SOURCE_TAG=local")
-    echo "Building from local context"
+    echo "Building from local context (tag: $TAG)"
   fi
   
-  docker build "${build_args[@]}" --target client-runtime -t "${FULL_REGISTRY_PREFIX}opsimate/client:${TAG}" .
+  docker build "${build_args[@]}" --target client-runtime -f docker/Dockerfile -t "${FULL_REGISTRY_PREFIX}opsimate/client:${TAG}" .
 }
 
 push_image() {

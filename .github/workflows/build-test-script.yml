@@ -60,13 +60,16 @@ jobs:
         # Use our script's tag logic
         if [ "${{ github.ref_type }}" = "tag" ]; then
           TAG="${{ github.ref_name }}"
+          BUILD_MODE="git"
         else
           BRANCH="${{ github.ref_name }}"
           SHA="${{ github.sha }}"
           TAG="${BRANCH}-${SHA:0:7}"
           TAG=${TAG//\//-}
+          BUILD_MODE="local"
         fi
         echo "tag=$TAG" >> $GITHUB_OUTPUT
+        echo "build_mode=$BUILD_MODE" >> $GITHUB_OUTPUT
         echo "registry=${{ env.REGISTRY }}/${{ github.repository_owner }}" >> $GITHUB_OUTPUT
 
     - name: Create .env file
@@ -77,6 +80,7 @@ jobs:
 
     - name: Build with script
       run: |
+        # Always use local build mode in CI since we have the source checked out
         ./scripts/build-and-deploy.sh build ${{ matrix.component }} \
           --tag "${{ steps.meta.outputs.tag }}" \
           --registry "${{ steps.meta.outputs.registry }}"
@@ -211,9 +215,6 @@ jobs:
     needs: [build, test-workflows, integration-test]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    environment: 
-      name: staging
-      url: http://staging.opsimate.com
       
     steps:
     - name: Checkout repository
