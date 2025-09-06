@@ -10,7 +10,15 @@ export interface OpsimateConfig {
         host: string;
     };
     database: {
-        path: string;
+        type?: 'sqlite' | 'postgres';
+        path?: string;
+        postgres?: {
+            host: string;
+            port: number;
+            database: string;
+            user: string;
+            password: string;
+        };
     };
     security: {
         private_keys_path: string;
@@ -41,7 +49,11 @@ export function loadConfig(): OpsimateConfig {
     const config = yaml.load(configFile) as OpsimateConfig;
 
     // Validate required fields
-    if (!config.server?.port || !config.database?.path || !config.security?.private_keys_path) {
+    const dbType = config.database?.type || 'sqlite';
+    if (!config.server?.port || 
+        (dbType === 'sqlite' && !config.database?.path) ||
+        (dbType === 'postgres' && !config.database?.postgres) ||
+        !config.security?.private_keys_path) {
         logger.error('Invalid config file: missing required fields');
         throw new Error(`Invalid config file: ${configPath}`);
     }
@@ -59,13 +71,15 @@ export function loadConfig(): OpsimateConfig {
 }
 
 function getDefaultConfig(): OpsimateConfig {
-    return {
+    const dbType = (process.env.DATABASE_TYPE as 'sqlite' | 'postgres') || 'sqlite';
+    
+    const config: OpsimateConfig = {
         server: {
             port: 3001,
             host: 'localhost'
         },
         database: {
-            path: '../../data/database/opsimate.db'
+            type: dbType
         },
         security: {
             private_keys_path: '../../data/private-keys'
@@ -74,6 +88,20 @@ function getDefaultConfig(): OpsimateConfig {
             try_with_sudo: process.env.VM_TRY_WITH_SUDO !== 'false'
         }
     };
+
+    if (dbType === 'postgres') {
+        config.database.postgres = {
+            host: process.env.POSTGRES_HOST || 'localhost',
+            port: parseInt(process.env.POSTGRES_PORT || '5432'),
+            database: process.env.POSTGRES_DB || 'opsimate',
+            user: process.env.POSTGRES_USER || 'opsimate',
+            password: process.env.POSTGRES_PASSWORD || 'opsimate_password'
+        };
+    } else {
+        config.database.path = process.env.DATABASE_PATH || '../../data/database/opsimate.db';
+    }
+
+    return config;
 }
 
 // Helper function to get individual config sections

@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: opsimate-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-opsimate}
+      POSTGRES_USER: ${POSTGRES_USER:-opsimate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-opsimate_password}
+    volumes:
+      - ../data/postgres:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-opsimate} -d ${POSTGRES_DB:-opsimate}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  opsimate-server:
+    image: opsimate/server:${OPSIMATE_TAG:-latest}
+    container_name: opsimate-server
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "3001:3001"
+    volumes:
+      - ../data/private-keys:/app/data/private-keys
+      - ../config:/app/config:ro
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - DATABASE_TYPE=postgres
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-opsimate}
+      - POSTGRES_USER=${POSTGRES_USER:-opsimate}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-opsimate_password}
+      - PRIVATE_KEYS_PATH=/app/data/private-keys
+    healthcheck:
+      test: ["CMD-SHELL","wget -q --spider http://localhost:3001/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

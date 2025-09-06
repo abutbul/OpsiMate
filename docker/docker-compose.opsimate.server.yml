@@ -1,0 +1,20 @@
+version: "3.8"
+services:
+  opsimate-server:
+    image: opsimate/server:${OPSIMATE_TAG:-latest}
+    container_name: opsimate-server
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    volumes:
+      - ../data/database:/app/data/database
+      - ../data/private-keys:/app/data/private-keys
+      - ../config:/app/config:ro
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+    healthcheck:
+      test: ["CMD-SHELL","wget -q --spider http://localhost:3001/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

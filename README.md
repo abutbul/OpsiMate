@@ -96,49 +96,105 @@ Centralized service discovery, monitoring, and management across your infrastruc
 
 ### Docker Deployment
 
-#### Quick Start with Docker
+OpsiMate supports both SQLite and PostgreSQL databases with flexible deployment options.
+
+#### Quick Start with Docker (SQLite)
 
 ```bash
-# Run the container
+# Run the container with SQLite database
 docker run -d \
   --name opsimate \
   --rm \
   -p 3001:3001 -p 8080:8080 \
   opsimate/opsimate
 ```
+
+#### Advanced Deployment with Build Script
+
+OpsiMate includes a wrapper script for building and deploying specific versions:
+
+```bash
+# Copy environment template
+cp .env.example .env
+# Edit .env with your configuration
+
+# Build and deploy with SQLite (default)
+./scripts/build-and-deploy.sh deploy-server
+
+# Build and deploy with PostgreSQL
+./scripts/build-and-deploy.sh deploy-server --postgres
+
+# Build specific version from git tag
+./scripts/build-and-deploy.sh build all --tag v0.0.28
+./scripts/build-and-deploy.sh deploy-server --tag v0.0.28
+```
+
+#### PostgreSQL Deployment
+
+For production environments, PostgreSQL is recommended:
+
+```bash
+# Deploy with PostgreSQL backend
+./scripts/build-and-deploy.sh deploy-server --postgres
+```
+
+This will start:
+- PostgreSQL 15 database container
+- OpsiMate server connected to PostgreSQL
+- Automatic health checks and dependency management
+
+#### Client-Only Deployment
+
+Run the frontend separately for development or testing:
+
+```bash
+# Run client container on-demand
+./scripts/build-and-deploy.sh run-client --tag local
+```
+
 **Access the application:**
    - **Backend:** http://localhost:3001
    - **Client:** http://localhost:8080
+   - **PostgreSQL:** localhost:5432 (when using PostgreSQL)
 
-### Volume Mounts (optional)
+### Environment Configuration
 
-| Volume | Purpose |
-|--------|---------|
-| `/app/data/database` | SQLite database persistence |
-| `/app/data/private-keys` | SSH private keys for authentication |
-| `/app/config/config.yml` | Custom configuration |
+OpsiMate supports flexible configuration through environment variables and YAML files.
 
-for example:
+#### Environment Variables
+
+Create a `.env` file from the provided template:
 
 ```bash
-# Run the container
-docker run -d \
-  --name opsimate \
-  --rm \
-  -p 3001:3001 -p 8080:8080 \
-  -v $(pwd)/data/database:/app/data/database \
-  -v $(pwd)/data/private-keys:/app/data/private-keys \
-  -v $(pwd)/config.yml:/app/config/config.yml \
-  opsimate/opsimate
+cp .env.example .env
 ```
 
-## Configuration
+Key configuration options:
 
-OpsiMate uses YAML configuration file
+```bash
+# Application version/tag
+OPSIMATE_TAG=local
 
+# Database Configuration
+DATABASE_TYPE=sqlite                    # or 'postgres'
+DATABASE_PATH=/app/data/database/opsimate.db
 
+# PostgreSQL Configuration (when DATABASE_TYPE=postgres)
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_DB=opsimate
+POSTGRES_USER=opsimate
+POSTGRES_PASSWORD=opsimate_password
 
-### Example Configuration
+# Server Configuration
+NODE_ENV=production
+PORT=3001
+HOST=0.0.0.0
+```
+
+#### YAML Configuration
+
+Alternatively, use a YAML configuration file:
 
 ```yaml
 # OpsiMate Configuration
@@ -147,13 +203,53 @@ server:
   host: "0.0.0.0"
 
 database:
-  path: "/app/data/database/opsimate.db"
+  type: sqlite                          # or 'postgres'
+  path: "/app/data/database/opsimate.db" # for SQLite
+  postgres:                             # for PostgreSQL
+    host: "postgres"
+    port: 5432
+    database: "opsimate"
+    user: "opsimate"
+    password: "opsimate_password"
 
 security:
   private_keys_path: "/app/data/private-keys"
 
 vm:
   try_with_sudo: false
+```
+
+### Volume Mounts
+
+| Volume | Purpose |
+|--------|---------|
+| `/app/data/database` | SQLite database persistence (SQLite mode) |
+| `/app/data/postgres` | PostgreSQL data persistence (PostgreSQL mode) |
+| `/app/data/private-keys` | SSH private keys for authentication |
+| `/app/config/config.yml` | Custom YAML configuration (optional) |
+
+### Build Script Usage
+
+The `build-and-deploy.sh` script supports various deployment scenarios:
+
+```bash
+# Build all components
+./scripts/build-and-deploy.sh build all
+
+# Build specific version from git tag
+./scripts/build-and-deploy.sh build all --tag v0.0.28
+
+# Deploy with SQLite
+./scripts/build-and-deploy.sh deploy-server
+
+# Deploy with PostgreSQL  
+./scripts/build-and-deploy.sh deploy-server --postgres
+
+# Run client standalone
+./scripts/build-and-deploy.sh run-client
+
+# Push to registry
+./scripts/build-and-deploy.sh push all --registry my.registry/opsimate
 ```
 
 ## Development
