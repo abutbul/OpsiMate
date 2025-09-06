@@ -1,0 +1,281 @@
+name: Build and Test with Script
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+    inputs:
+      test_workflow:
+        description: 'Which test workflow to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - sqlite
+        - postgres
+        - database
+        - upgrade
+      skip_tests:
+        description: 'Skip test workflows'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Build job using our script
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        component: [server, client, all]
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      run: |
+        # Use our script's tag logic
+        if [ "${{ github.ref_type }}" = "tag" ]; then
+          TAG="${{ github.ref_name }}"
+        else
+          BRANCH="${{ github.ref_name }}"
+          SHA="${{ github.sha }}"
+          TAG="${BRANCH}-${SHA:0:7}"
+          TAG=${TAG//\//-}
+        fi
+        echo "tag=$TAG" >> $GITHUB_OUTPUT
+        echo "registry=${{ env.REGISTRY }}/${{ github.repository_owner }}" >> $GITHUB_OUTPUT
+
+    - name: Create .env file
+      run: |
+        cp .env.example .env
+        echo "OPSIMATE_TAG=${{ steps.meta.outputs.tag }}" >> .env
+        echo "DATABASE_TYPE=sqlite" >> .env
+
+    - name: Build with script
+      run: |
+        ./scripts/build-and-deploy.sh build ${{ matrix.component }} \
+          --tag "${{ steps.meta.outputs.tag }}" \
+          --registry "${{ steps.meta.outputs.registry }}"
+
+    - name: Push images
+      if: github.event_name != 'pull_request'
+      run: |
+        ./scripts/build-and-deploy.sh push ${{ matrix.component }} \
+          --tag "${{ steps.meta.outputs.tag }}" \
+          --registry "${{ steps.meta.outputs.registry }}"
+
+  # Test workflows using our script
+  test-workflows:
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.skip_tests }}
+    strategy:
+      fail-fast: false
+      matrix:
+        workflow: [sqlite, postgres, database, upgrade]
+        
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up test environment
+      run: |
+        cp .env.example .env
+        echo "OPSIMATE_TAG=${{ needs.build.outputs.tag }}" >> .env
+
+    - name: Run test workflow
+      run: |
+        # Override test tags to use our built images
+        export TEST_TAG_1="${{ needs.build.outputs.tag }}"
+        export TEST_TAG_2="${{ needs.build.outputs.tag }}"
+        
+        # Run specific workflow or all if requested
+        WORKFLOW="${{ matrix.workflow }}"
+        if [ "${{ inputs.test_workflow }}" != "all" ]; then
+          WORKFLOW="${{ inputs.test_workflow }}"
+        fi
+        
+        ./scripts/test-docker-workflows.sh "$WORKFLOW"
+
+    - name: Upload test logs
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: test-logs-${{ matrix.workflow }}
+        path: |
+          /tmp/opsimate-test-*.log
+        retention-days: 7
+
+  # Integration test using script commands
+  integration-test:
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.skip_tests }}
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Set up environment
+      run: |
+        cp .env.example .env
+        echo "OPSIMATE_TAG=${{ needs.build.outputs.tag }}" >> .env
+        echo "DATABASE_TYPE=sqlite" >> .env
+
+    - name: Test SQLite deployment
+      run: |
+        # Deploy with SQLite using build script
+        ./scripts/build-and-deploy.sh deploy-server --tag "${{ needs.build.outputs.tag }}"
+        
+        # Wait for health check
+        timeout 60 bash -c 'until curl -f http://localhost:3001/api/health; do sleep 2; done'
+        
+        # Test container status using build script
+        ./scripts/build-and-deploy.sh ps
+        
+        # Stop and clean using build script
+        ./scripts/build-and-deploy.sh stop
+        ./scripts/build-and-deploy.sh clean containers
+
+    - name: Test PostgreSQL deployment
+      run: |
+        # Deploy with PostgreSQL using build script
+        ./scripts/build-and-deploy.sh deploy-server --tag "${{ needs.build.outputs.tag }}" --postgres
+        
+        # Wait for health check
+        timeout 90 bash -c 'until curl -f http://localhost:3002/api/health; do sleep 2; done'
+        
+        # Test container status using build script
+        ./scripts/build-and-deploy.sh ps
+        
+        # Stop and clean using build script
+        ./scripts/build-and-deploy.sh stop --postgres
+        ./scripts/build-and-deploy.sh clean containers
+
+    - name: Test client deployment
+      run: |
+        # Run client using build script and test
+        timeout 30 ./scripts/build-and-deploy.sh run-client --tag "${{ needs.build.outputs.tag }}" &
+        sleep 10
+        curl -f http://localhost:8080 || (echo "Client health check failed" && exit 1)
+        
+        # Clean up using build script
+        ./scripts/build-and-deploy.sh clean containers
+
+  # Security scanning
+  security-scan:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    
+    steps:
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: '${{ env.REGISTRY }}/${{ github.repository_owner }}/opsimate/server:${{ needs.build.outputs.tag }}'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+  # Deploy to staging/production using script
+  deploy:
+    needs: [build, test-workflows, integration-test]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: 
+      name: staging
+      url: http://staging.opsimate.com
+      
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Deploy to staging
+      run: |
+        # This would typically deploy to a staging environment
+        # using our script with the appropriate registry and tag
+        echo "Would deploy using:"
+        echo "./scripts/build-and-deploy.sh deploy-server"
+        echo "  --tag ${{ needs.build.outputs.tag }}"
+        echo "  --registry ${{ env.REGISTRY }}/${{ github.repository_owner }}"
+        echo "  --postgres"
+
+  # Release workflow for tags
+  release:
+    needs: [build, test-workflows, integration-test]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Create Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref_name }}
+        release_name: Release ${{ github.ref_name }}
+        body: |
+          ## Docker Images
+          
+          ```bash
+          # Deploy with SQLite
+          docker run -p 3001:3001 -p 8080:8080 \
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/opsimate/server:${{ github.ref_name }}
+          
+          # Or use our build script
+          ./scripts/build-and-deploy.sh deploy-server --tag ${{ github.ref_name }}
+          ```
+          
+          ## What's Changed
+          
+          See the commit history for detailed changes.
+        draft: false
+        prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+
+  # Cleanup old images
+  cleanup:
+    needs: [deploy, release]
+    runs-on: ubuntu-latest
+    if: always() && (needs.deploy.result == 'success' || needs.release.result == 'success')
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Clean up old images
+      run: |
+        # This would clean up old container registry images
+        # keeping only the last N versions
+        echo "Would clean up old images using registry API or script"

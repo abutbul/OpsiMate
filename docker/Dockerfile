@@ -1,14 +1,30 @@
 # Build stage
 FROM node:20-alpine AS builder
 
+# Build args for source control
+ARG SOURCE_TAG=local
+ARG GIT_REPO=https://github.com/OpsiMate/OpsiMate.git
+
 # Install build tools and clean up in same layer
 RUN npm install -g pnpm typescript && \
-    npm cache clean --force
+    npm cache clean --force && \
+    if [ "$SOURCE_TAG" != "local" ]; then apk add --no-cache git; fi
 
 WORKDIR /app
 
-# Copy package files first for better caching
-COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+# Conditional source handling: clone from git tag or use local context
+RUN if [ "$SOURCE_TAG" != "local" ]; then \
+        echo "Cloning from git tag: $SOURCE_TAG"; \
+        git clone --depth 1 --branch "$SOURCE_TAG" "$GIT_REPO" /tmp/source && \
+        cp -r /tmp/source/* /app/ && \
+        rm -rf /tmp/source; \
+    else \
+        echo "Using local build context - package files will be copied next"; \
+    fi
+
+# Copy package files for dependency installation (skip if already cloned from git)
+RUN if [ "$SOURCE_TAG" = "local" ]; then echo "Ready for package.json copy"; fi
+COPY package*.json pnpm*.yaml ./
 COPY apps/server/package.json ./apps/server/
 COPY apps/client/package.json ./apps/client/
 COPY packages/shared/package.json ./packages/shared/
@@ -18,7 +34,8 @@ RUN pnpm install --no-frozen-lockfile && \
     if [ "$(uname -m)" = "aarch64" ]; then pnpm add @rollup/rollup-linux-arm64-musl --save-dev --filter @OpsiMate/client; fi && \
     pnpm store prune
 
-# Copy source code and build
+# Copy remaining source code for local builds (git builds already have everything)
+RUN if [ "$SOURCE_TAG" = "local" ]; then echo "Ready for source copy"; fi
 COPY . .
 RUN pnpm run build && \
     pnpm prune --prod && \

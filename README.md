@@ -344,6 +344,50 @@ This shows:
 - `pnpm run test` - Run test suite
 - `pnpm run lint` - Check code quality
 
+### Docker Testing Suite
+
+OpsiMate includes comprehensive Docker testing tools for developers and CI/CD:
+
+#### Comprehensive Test Suite
+```bash
+# Run all test workflows
+./scripts/test-docker-workflows.sh
+
+# Run specific workflows
+./scripts/test-docker-workflows.sh sqlite    # SQLite build and test
+./scripts/test-docker-workflows.sh postgres  # PostgreSQL build and test  
+./scripts/test-docker-workflows.sh database  # Database type verification
+./scripts/test-docker-workflows.sh upgrade   # Version upgrade scenarios
+```
+
+The test suite validates:
+- **Build Process**: Server and client builds with different tags
+- **Database Types**: SQLite vs PostgreSQL deployment and verification
+- **Health Checks**: API endpoints and service connectivity
+- **Version Upgrades**: Deployment and cleanup of different versions
+- **Container Management**: Start, stop, and cleanup operations
+
+#### Quick Testing
+```bash
+# Interactive menu for rapid testing
+./scripts/quick-test.sh
+
+# Non-interactive quick tests
+./scripts/quick-test.sh sqlite     # Quick SQLite test
+./scripts/quick-test.sh postgres   # Quick PostgreSQL test
+./scripts/quick-test.sh client     # Quick client test
+./scripts/quick-test.sh all        # All quick tests
+./scripts/quick-test.sh clean      # Cleanup everything
+```
+
+#### Test Workflows Covered
+
+1. **SQLite Workflow**: Build → Deploy with SQLite → Health check → Client test
+2. **PostgreSQL Workflow**: Build → Deploy with PostgreSQL → Health check → Client test  
+3. **Database Verification**: Ensure SQLite uses SQLite and PostgreSQL uses PostgreSQL
+4. **Version Upgrade**: Deploy v1 → Stop → Deploy v2 → Cleanup v1
+5. **Container Management**: Test all management commands (ps, stop, clean)
+
 
 ## Contributing
 

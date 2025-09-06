@@ -105,13 +105,35 @@ prepare_source() {
 build_server() {
   echo "Building server image: ${FULL_REGISTRY_PREFIX}opsimate/server:${TAG}"
   prepare_source "$TAG"
-  docker build "${BUILD_ARGS[@]}" --target server-runtime -t "${FULL_REGISTRY_PREFIX}opsimate/server:${TAG}" .
+  
+  # Determine build args based on tag
+  local build_args=("${BUILD_ARGS[@]}")
+  if [ "$TAG" != "local" ]; then
+    build_args+=(--build-arg "SOURCE_TAG=$TAG")
+    echo "Building from git tag: $TAG"
+  else
+    build_args+=(--build-arg "SOURCE_TAG=local")
+    echo "Building from local context"
+  fi
+  
+  docker build "${build_args[@]}" --target server-runtime -f docker/Dockerfile -t "${FULL_REGISTRY_PREFIX}opsimate/server:${TAG}" .
 }
 
 build_client() {
   echo "Building client image: ${FULL_REGISTRY_PREFIX}opsimate/client:${TAG}"
   prepare_source "$TAG"
-  docker build "${BUILD_ARGS[@]}" --target client-runtime -t "${FULL_REGISTRY_PREFIX}opsimate/client:${TAG}" .
+  
+  # Determine build args based on tag
+  local build_args=("${BUILD_ARGS[@]}")
+  if [ "$TAG" != "local" ]; then
+    build_args+=(--build-arg "SOURCE_TAG=$TAG")
+    echo "Building from git tag: $TAG"
+  else
+    build_args+=(--build-arg "SOURCE_TAG=local")
+    echo "Building from local context"
+  fi
+  
+  docker build "${build_args[@]}" --target client-runtime -t "${FULL_REGISTRY_PREFIX}opsimate/client:${TAG}" .
 }
 
 push_image() {
