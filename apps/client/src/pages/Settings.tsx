@@ -161,7 +161,7 @@ const Settings: React.FC = () => {
       }} className="space-y-6">
         <div className="flex gap-6">
           <div className="w-64 flex-shrink-0">
-            <TabsList className="flex flex-col items-stretch h-auto p-2 gap-2 bg-white">
+            <TabsList className="flex flex-col items-stretch h-auto p-2 gap-2">
               <TabsTrigger value="users" className="justify-start gap-2">
                 <Users className="h-4 w-4" />
                 Users
@@ -460,24 +460,8 @@ const AddSecretButton: React.FC = () => {
   const { toast } = useToast();
 
   const handleFile = async (file: File) => {
-    // Basic validation to check if the file looks like a key file
-    const fileContent = await file.text();
-    const pemHeaders = [
-      '-----BEGIN RSA PRIVATE KEY-----',
-      '-----BEGIN DSA PRIVATE KEY-----',
-      '-----BEGIN EC PRIVATE KEY-----',
-      '-----BEGIN OPENSSH PRIVATE KEY-----',
-      '-----BEGIN PRIVATE KEY-----',
-      '-----BEGIN ENCRYPTED PRIVATE KEY-----',
-      '-----BEGIN PUBLIC KEY-----',
-      'ssh-rsa ',
-      'ssh-ed25519 ',
-      'ecdsa-sha2-'
-    ];
-    
-    const isKeyFile = pemHeaders.some(header => fileContent.includes(header));
-    
-    setIsFileValid(isKeyFile);
+    // todo: implement file validation
+    setIsFileValid(true);
     setSelectedFile(file);
     setFileName(file.name);
   };

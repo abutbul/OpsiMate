@@ -13,6 +13,9 @@ import { SavedView } from "@/types/SavedView"
 import { useServices, useAlerts, useStartService, useStopService, useDismissAlert, useSaveView, useDeleteView, useViews, useActiveView } from "@/hooks/queries"
 import { Alert } from "@OpsiMate/shared"
 import { TVModeLauncher } from "@/components/TVModeLauncher"
+import { Button } from "@/components/ui/button"
+import { ChevronLeft, ChevronRight } from "lucide-react"
+import { cn } from "@/lib/utils"
 
 
 const Dashboard = () => {
@@ -42,12 +45,14 @@ const Dashboard = () => {
         serviceStatus: true,
         provider: true,
         containerDetails: false,
+        tags: true,
         alerts: true
     })
     const [filters, setFilters] = useState<Filters>({})
     const [filterPanelCollapsed, setFilterPanelCollapsed] = useState(false)
     const [rightSidebarCollapsed, setRightSidebarCollapsed] = useState(false)
     const [searchTerm, setSearchTerm] = useState("")
+    const [columnOrder, setColumnOrder] = useState<string[]>(['name', 'serviceIP', 'serviceStatus', 'provider', 'containerDetails', 'tags', 'alerts'])
 
     // Enhanced alert calculation: each service gets alerts for ALL its tags
     const servicesWithAlerts = useMemo(() => {
@@ -112,6 +117,7 @@ const Dashboard = () => {
                             serviceStatus: true,
                             provider: true,
                             containerDetails: true,
+                            tags: true,
                             alerts: true
                         });
                     } else {
@@ -473,17 +479,38 @@ const Dashboard = () => {
             <DashboardLayout>
                 <div className="flex flex-col h-full">
                     <div className="flex flex-row h-full">
-                        <div className="w-64 border-r border-border p-4">
-                            <FilterPanel
-                                services={services}
-                                filters={filters}
-                                onFilterChange={setFilters}
-                                collapsed={filterPanelCollapsed}
-                            />
+                        <div className={cn(
+                            "border-r border-border transition-all duration-300 ease-in-out flex-shrink-0 relative",
+                            filterPanelCollapsed ? "w-12" : "w-48"
+                        )}>
+                            <div className="h-full flex flex-col">
+                                <div className="flex items-center justify-between p-2 border-b border-border">
+                                    {!filterPanelCollapsed && (
+                                        <h3 className="text-sm font-semibold text-foreground">Filters</h3>
+                                    )}
+                                </div>
+                                <div className="flex-1 overflow-hidden">
+                                    <FilterPanel
+                                        services={services}
+                                        filters={filters}
+                                        onFilterChange={setFilters}
+                                        collapsed={filterPanelCollapsed}
+                                    />
+                                </div>
+                            </div>
+                            <Button
+                                onClick={toggleFilterPanel}
+                                variant="ghost"
+                                size="icon"
+                                className="z-10 absolute top-1/2 -right-4 -translate-y-1/2 border bg-background hover:bg-muted rounded-full h-8 w-8"
+                                title={filterPanelCollapsed ? "Expand filters" : "Collapse filters"}
+                            >
+                                {filterPanelCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+                            </Button>
                         </div>
                         <div className="flex-1 flex flex-col">
-                            <div className="flex-1 p-4 flex flex-col overflow-auto">
-                                <div className="flex justify-between items-center mb-4">
+                            <div className="flex-1 p-2 flex flex-col overflow-auto">
+                                <div className="flex justify-between items-center mb-2">
                                     <SavedViewsManager
                                         currentFilters={filters}
                                         currentVisibleColumns={visibleColumns}
@@ -510,9 +537,11 @@ const Dashboard = () => {
                                     searchTerm={searchTerm}
                                     onSearchChange={setSearchTerm}
                                     loading={servicesLoading}
+                                    columnOrder={columnOrder}
+                                    onColumnOrderChange={setColumnOrder}
                                 />
                             </div>
-                            <div className="flex-shrink-0 p-4 border-t border-border">
+                            <div className="flex-shrink-0 p-2 border-t border-border">
                                 <ActionButtons
                                     selectedService={selectedService}
                                     selectedServices={selectedServices}
